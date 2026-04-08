@@ -8,13 +8,80 @@ from typing_extensions import Self
 import numpy as np
 import pandas as pd
 import torch
-import torchtext.vocab as torch_vocab
-from torchtext.vocab import Vocab
 
 # from transformers.tokenization_utils import PreTrainedTokenizer
 # from transformers import AutoTokenizer, BertTokenizer
 
 from .. import logger
+
+
+class Vocab:
+    """
+    Custom vocabulary class providing bidirectional token <-> index lookup.
+    Replaces torchtext.vocab.Vocab without requiring torchtext as a dependency.
+    """
+
+    def __init__(self, tokens: Optional[List[str]] = None) -> None:
+        self._itos: List[str] = []
+        self._stoi: Dict[str, int] = {}
+        self._default_index: Optional[int] = None
+
+        if tokens is not None:
+            for token in tokens:
+                if token not in self._stoi:
+                    self._stoi[token] = len(self._itos)
+                    self._itos.append(token)
+
+    def __len__(self) -> int:
+        return len(self._itos)
+
+    def __contains__(self, token: str) -> bool:
+        return token in self._stoi
+
+    def __getitem__(self, token: str) -> int:
+        if token in self._stoi:
+            return self._stoi[token]
+        if self._default_index is not None:
+            return self._default_index
+        raise KeyError(f"Token '{token}' not found in vocabulary.")
+
+    def __call__(self, tokens: List[str]) -> List[int]:
+        return [self[token] for token in tokens]
+
+    def set_default_index(self, index: Optional[int]) -> None:
+        self._default_index = index
+
+    def get_default_index(self) -> Optional[int]:
+        return self._default_index
+
+    def get_stoi(self) -> Dict[str, int]:
+        return dict(self._stoi)
+
+    def get_itos(self) -> List[str]:
+        return list(self._itos)
+
+    def insert_token(self, token: str, index: int) -> None:
+        """Insert a token at the given index, shifting existing tokens."""
+        if token in self._stoi:
+            raise RuntimeError(f"Token '{token}' already exists in vocabulary.")
+        self._itos.insert(index, token)
+        self._stoi = {t: i for i, t in enumerate(self._itos)}
+
+    def append_token(self, token: str) -> None:
+        """Append a token to the end of the vocabulary."""
+        if token in self._stoi:
+            raise RuntimeError(f"Token '{token}' already exists in vocabulary.")
+        self._stoi[token] = len(self._itos)
+        self._itos.append(token)
+
+    def lookup_token(self, index: int) -> str:
+        return self._itos[index]
+
+    def lookup_tokens(self, indices: List[int]) -> List[str]:
+        return [self._itos[i] for i in indices]
+
+    def lookup_indices(self, tokens: List[str]) -> List[int]:
+        return [self[token] for token in tokens]
 
 
 class GeneVocab(Vocab):
@@ -48,17 +115,20 @@ class GeneVocab(Vocab):
                 raise ValueError(
                     "receive non-empty specials when init from a Vocab object."
                 )
+            super().__init__(_vocab.get_itos())
+            if _vocab.get_default_index() is not None:
+                self.set_default_index(_vocab.get_default_index())
         elif isinstance(gene_list_or_vocab, list):
             _vocab = self._build_vocab_from_iterator(
                 gene_list_or_vocab,
                 specials=specials,
                 special_first=special_first,
             )
+            super().__init__(_vocab.get_itos())
         else:
             raise ValueError(
                 "gene_list_or_vocab must be a list of gene names or a Vocab object."
             )
-        super().__init__(_vocab.vocab)
         if default_token is not None and default_token in self:
             self.set_default_token(default_token)
 
@@ -130,7 +200,7 @@ class GeneVocab(Vocab):
             special_first (bool): Whether to add special tokens to the beginning
 
         Returns:
-            torchtext.vocab.Vocab: A `Vocab` object
+            Vocab: A `Vocab` object
         """
 
         counter = Counter()
@@ -151,8 +221,8 @@ class GeneVocab(Vocab):
                 ordered_dict.update({symbol: min_freq})
                 ordered_dict.move_to_end(symbol, last=not special_first)
 
-        word_vocab = torch_vocab.vocab(ordered_dict, min_freq=min_freq)
-        return word_vocab
+        tokens = [tok for tok, freq in ordered_dict.items() if freq >= min_freq]
+        return Vocab(tokens)
 
     @property
     def pad_token(self) -> Optional[str]:

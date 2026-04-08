@@ -16,7 +16,6 @@ dependencies:
       - scvi-tools>=0.16.4
       - scib>=1.0.3
       - torch>=1.13.0
-      - torchtext
       - tqdm>=4.64.0
       - typing-extensions>=4.2.0
       - umap-learn>=0.5.3
