@@ -142,8 +142,28 @@ class GeneVocab(Vocab):
             file_path = Path(file_path)
         if file_path.suffix == ".pkl":
             with file_path.open("rb") as f:
-                vocab = pickle.load(f)
+                try:
+                    vocab = pickle.load(f)
+                except ModuleNotFoundError as e:
+                    raise ValueError(
+                        f"Failed to load vocabulary from {file_path}. "
+                        "The file appears to be a torchtext vocab pickle, but "
+                        "torchtext is not installed. Please convert it to JSON "
+                        "format: load the vocab with torchtext installed and "
+                        "call vocab.save_json() to save it as JSON."
+                    ) from e
+            if isinstance(vocab, (Vocab, GeneVocab)):
                 return cls(vocab)
+            # Handle torchtext Vocab objects (torchtext >= 0.9 API)
+            if hasattr(vocab, "get_stoi"):
+                return cls.from_dict(vocab.get_stoi())
+            # Handle older torchtext Vocab objects (pre-0.9 API)
+            if hasattr(vocab, "stoi"):
+                return cls.from_dict(dict(vocab.stoi))
+            raise ValueError(
+                f"Cannot load vocabulary from {file_path}: "
+                "unrecognized pickle format."
+            )
         elif file_path.suffix == ".json":
             with file_path.open("r") as f:
                 token2idx = json.load(f)
